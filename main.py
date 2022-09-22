@@ -4,6 +4,7 @@ import sys
 import json
 import yaml
 import re
+import argparse
 from subprocess import PIPE, run
 from collections import defaultdict
 from dotenv import load_dotenv
@@ -112,8 +113,18 @@ def parse_projects():
 
 
 if __name__ == "__main__":
-    proj_res = parse_projects()
-    sq_res = parse_scheduled_queries()
+
+    parser = argparse.ArgumentParser(description='BigQuery Table Parser')
+
+    parser.add_argument('-p', '--projects', dest='only_projs', action='store_true', required=False,
+                        help='only check projects')
+    parser.add_argument('-q', '--queries', dest='only_queries', action='store_true', required=False,
+                        help='only check queries')
+
+    args = parser.parse_args()
+
+    proj_res = parse_projects() if not args.only_queries else dict()
+    sq_res = parse_scheduled_queries() if not args.only_projs else dict()
 
     total_dict = {}
     total_tables = list(proj_res.keys()) + list(sq_res.keys())

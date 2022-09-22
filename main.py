@@ -2,6 +2,8 @@ import logging
 import os
 import sys
 import json
+from typing import Iterable, Callable
+
 import yaml
 import re
 import argparse
@@ -20,7 +22,24 @@ else:
     sys.exit(1)
 
 
-def read_query(query: str) -> set:
+TABLE_REGEX = r'`?([a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+)`?'
+
+
+def read_file(root: str, filename: str, parser_func: Callable) -> Iterable:
+    """
+    Read file contents and parses it according to provided method, returning tables found within.
+
+    :param root: directory path
+    :param filename: name of file
+    :param parser_func: parser function to be called on file contents
+    :return: Iterable (set/list) of table names found in file contents
+    """
+
+    with open(os.path.join(root, filename)) as input_file:
+        return parser_func(input_file.read().splitlines())
+
+
+def parse_query(query: list) -> set:
     """
     Reads query string with a simple regex match and cleans it up a bit before processing.
     Returns a set (no duplicates) of table names found in query.
@@ -31,23 +50,46 @@ def read_query(query: str) -> set:
         JOIN `project.dataset.table`
         join project.dataset.table
 
-    :param query: string with query
+    :param query: list with query lines
     :return: set of table names (format of table name: project.dataset.table)
     """
 
     # strip extra whitespace
-    query_lines = [line.strip() for line in query.split('\n')]
+    query_lines = [line.strip() for line in query]
 
     # remove empty strings and comments
     cleaned_query = ' '.join([line for line in query_lines if line and not line.startswith('--')])
 
     # see example matches above
     matches = re.findall(
-        pattern=r'(FROM|from|JOIN|join){1} `+([a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+)`+',
+        pattern=r'(FROM|from|JOIN|join){1} ' + TABLE_REGEX,
         string=cleaned_query
     )
 
     return set([groups[1] for groups in matches])
+
+
+def parse_settings(settings: list):
+    """
+    Parse settings.py files to find tables mentioned within them.
+    :param settings: list of strings containing lines from settings.py files
+    :return: list of table names found in settings.py file
+    """
+
+    # cleanup lines
+    settings_lines = [line.strip().lower() for line in settings if line.strip()]
+
+    # try to find potential candidates based on certain keywords and that are not commented out
+    candidates = [
+        re.findall(TABLE_REGEX, line) for line in settings_lines
+        if not line.startswith("#") and re.search(r'bq|bigquery|table', line.lower())
+    ]
+
+    # format results into contiguous list and cleans up false positives such as function calls
+    return [
+        candidate for candidate_list in candidates for candidate in candidate_list
+        if candidate and not candidate.startswith(('os.', 'sys.'))
+    ]
 
 
 def parse_scheduled_queries() -> dict:
@@ -74,7 +116,7 @@ def parse_scheduled_queries() -> dict:
 
         query = scheduled_query['params'].get('query')
 
-        for tablename in read_query(query):
+        for tablename in parse_query(query.split('\n')):
             table_dict[tablename].append(scheduled_query.get('displayName'))
 
     return dict(table_dict)
@@ -103,11 +145,16 @@ def parse_projects():
         for root, dirs, files in os.walk(os.path.join(proj_root, proj)):
             for filename in files:
 
-                if filename.endswith('.sql') or filename.endswith('.bigquery'):
+                proj_tables = []
 
-                    with open(os.path.join(root, filename)) as sql_file:
-                        for tablename in read_query(sql_file.read()):
-                            proj_table_dict[tablename].add(proj)
+                if filename.endswith('.sql') or filename.endswith('.bigquery'):
+                    proj_tables.extend(read_file(root, filename, parse_query))
+
+                if filename == 'settings.py':
+                    proj_tables.extend(read_file(root, filename, parse_settings))
+
+                for tablename in set(proj_tables):
+                    proj_table_dict[tablename].add(proj)
 
     return {table_name: list(proj_lst) for table_name, proj_lst in proj_table_dict.items()}
 
@@ -123,6 +170,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
+    # checks if user only wants to parse certain contents
     proj_res = parse_projects() if not args.only_queries else dict()
     sq_res = parse_scheduled_queries() if not args.only_projs else dict()
 

@@ -104,7 +104,7 @@ def parse_scheduled_queries() -> dict:
 
     # retrieves scheduled queries, returns JSON collection
     response = run(
-        f"bq ls --project_id={os.getenv('GCP_PROJECT')} --transfer_config --transfer_location=EU --format=prettyjson",
+        f"bq ls --application_default_credential_file={os.getenv('GOOGLE_APPLICATION_CREDENTIALS')} --project_id={os.getenv('GCP_PROJECT')} --transfer_config --transfer_location=EU --format=prettyjson",
         stdout=PIPE,
         stderr=PIPE,
         universal_newlines=True,

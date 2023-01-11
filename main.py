@@ -102,9 +102,18 @@ def parse_scheduled_queries() -> dict:
 
     table_dict = defaultdict(list)
 
+    bq_command = (
+        "bq ls",
+        f"--application_default_credential_file={os.getenv('GOOGLE_APPLICATION_CREDENTIALS')}",
+        f"--project_id={os.getenv('GCP_PROJECT')}",
+        "--transfer_config",
+        "--transfer_location=EU",
+        "--format=prettyjson"
+    )
+
     # retrieves scheduled queries, returns JSON collection
     response = run(
-        f"bq ls --application_default_credential_file={os.getenv('GOOGLE_APPLICATION_CREDENTIALS')} --project_id={os.getenv('GCP_PROJECT')} --transfer_config --transfer_location=EU --format=prettyjson",
+        " ".join(bq_command),
         stdout=PIPE,
         stderr=PIPE,
         universal_newlines=True,
@@ -116,8 +125,10 @@ def parse_scheduled_queries() -> dict:
 
         query = scheduled_query['params'].get('query')
 
+        query_name = scheduled_query.get('displayName') + (' (disabled)' if scheduled_query.get('disabled') else '')
+
         for tablename in parse_query(query.split('\n')):
-            table_dict[tablename].append(scheduled_query.get('displayName'))
+            table_dict[tablename].append(query_name)
 
     return dict(table_dict)
 
